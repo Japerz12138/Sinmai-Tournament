@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35828.75 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MaimaiTournamentMod", "MaimaiTournamentMod.csproj", "{D6CFC474-B2B7-441B-B390-4E01324DEAB3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D6CFC474-B2B7-441B-B390-4E01324DEAB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6CFC474-B2B7-441B-B390-4E01324DEAB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6CFC474-B2B7-441B-B390-4E01324DEAB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6CFC474-B2B7-441B-B390-4E01324DEAB3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {196CC7DD-7E1D-450A-97ED-D3254EFD119D}
+	EndGlobalSection
+EndGlobal
