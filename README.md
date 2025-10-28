@@ -1,5 +1,5 @@
-Install Melonloader. 
-Put dll into Mods.
-Run the game.
-Edit UserData/MelonPreferences.cfg
-Done.
+Install Melonloader. </br>
+Put dll into Mods. </br>
+Run the game. </br>
+Edit UserData/MelonPreferences.cfg. </br>
+Done. </br>
