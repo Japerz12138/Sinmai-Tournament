@@ -1,0 +1,19 @@
+本Mod已开源，仅供研究学习使用，禁止任何商业行为，数据均在本地处理并存储，与任何服务器无关，如有冲突请手动禁用此Mod。
+项目地址：https://github.com/Eternal973/Sinmai-Tournament
+
+使用方法：
+》》请确认你安装好了MelonLoader，你可以使用MaiChartManager进行安装。《《
+把Mods文件夹拖进Package覆盖即可。
+与Aquamai无冲突。
+UserData文件夹内是已填写好KOP 7th信息的配置文件以及一个空的排行榜。
+如果直接覆盖，可能会导致其他使用MelonLoaderPreferences的Mod被重置，请确认该文件没有被使用再替换或手动复制进MelonPreferences.cfg文件内。
+
+自定义的情况，除了更改cfg文件外仍需完整的ScoreRanking.xml，你可以在Sinmai_Data\StreamingAssets\A000\scoreRanking文件夹内找到模板。
+
+
+目前可能存在的bug：
+由于打绿谱扣3%，打黄谱扣2%，打红谱扣1%，所以在总达成率被扣成负数时可能有奇异搞笑的bug。
+别的不知道，我没发现。
+
+本项目代码由DeepSeek-V3.2-Exp强力驱动。
+（973：它自己看得明白自己写的啥吗。。。 
