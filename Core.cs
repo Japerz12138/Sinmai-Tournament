@@ -1,4 +1,10 @@
-﻿using System.Text;
+﻿using System;
+using System.IO;
+using System.Text;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Threading.Tasks;
 using MelonLoader;
 using Net.VO;
 using Net.VO.Mai2;
@@ -13,16 +19,32 @@ namespace MaimaiTournamentMod
 {
     public class MaimaiTournamentMod : MelonMod
     {
-        private static TournamentConfig _config;
+        private static TournamentConfig config;
 
         public override void OnInitializeMelon()
         {
-            _config = new TournamentConfig();
-            _config.Load();
+            config = new TournamentConfig();
+            config.Load();
             HarmonyInstance.PatchAll(typeof(TournamentPatches));
             HarmonyInstance.PatchAll(typeof(PacketUpsertUserAllPatch));
             LoggerInstance.Msg("本Mod已开源，仅供研究学习使用，禁止任何商业行为，数据均在本地处理并存储，与任何服务器无关，如有冲突请手动禁用此Mod。");
             LoggerInstance.Msg("Tournament Mod loaded!");
+            if (config.EnableApiUpload)
+            {
+                LoggerInstance.Msg($"API Upload enabled - URL: {config.ApiUrl}, Timeout: {config.ApiTimeout}s");
+                if (!string.IsNullOrWhiteSpace(config.ApiKey))
+                {
+                    LoggerInstance.Msg("API Key is configured");
+                }
+                else
+                {
+                    LoggerInstance.Msg("Warning: API Key is not set");
+                }
+            }
+            else
+            {
+                LoggerInstance.Msg("API Upload is disabled");
+            }
         }
 
         [HarmonyPatch]
@@ -30,22 +52,22 @@ namespace MaimaiTournamentMod
         {
             [HarmonyPatch(typeof(PacketGetGameTournamentInfo), "Proc")]
             [HarmonyPostfix]
-            public static void Proc_Postfix(PacketGetGameTournamentInfo instance, ref PacketState result)
+            public static void Proc_Postfix(PacketGetGameTournamentInfo __instance, ref PacketState __result)
             {
                 try
                 {
-                    if (!_config.Enabled) return;
+                    if (!config.Enabled) return;
 
                     var onDoneField = AccessTools.Field(typeof(PacketGetGameTournamentInfo), "_onDone");
                     var onErrorField = AccessTools.Field(typeof(PacketGetGameTournamentInfo), "_onError");
 
-                    var onDone = (Action<GameTournamentInfo[]>)onDoneField.GetValue(instance);
-                    var onError = (Action<PacketStatus>)onErrorField.GetValue(instance);
+                    var onDone = (Action<GameTournamentInfo[]>)onDoneField.GetValue(__instance);
+                    var onError = (Action<PacketStatus>)onErrorField.GetValue(__instance);
 
-                    if (result == PacketState.Done)
+                    if (__result == PacketState.Done)
                     {
                         var customData = GetCustomTournamentData();
-                        if (_config.DebugLog)
+                        if (config.DebugLog)
                         {
                             PrintJsonResponse(customData);
                         }
@@ -61,11 +83,11 @@ namespace MaimaiTournamentMod
 
             [HarmonyPatch(typeof(PacketGetUserScoreRanking), "Proc")]
             [HarmonyPrefix]
-            public static bool ProcUserScoreRanking_Prefix(PacketGetUserScoreRanking instance, ref PacketState result)
+            public static bool ProcUserScoreRanking_Prefix(PacketGetUserScoreRanking __instance, ref PacketState __result)
             {
                 try
                 {
-                    if (!_config.EnableScoreRanking) return true;
+                    if (!config.EnableScoreRanking) return true;
 
                     var onDoneField = AccessTools.Field(typeof(PacketGetUserScoreRanking), "_onDone");
                     var responseVOsField = AccessTools.Field(typeof(PacketGetUserScoreRanking), "_responseVOs");
@@ -73,16 +95,16 @@ namespace MaimaiTournamentMod
                     var listIndexField = AccessTools.Field(typeof(PacketGetUserScoreRanking), "_listIndex");
                     var listLengthField = AccessTools.Field(typeof(PacketGetUserScoreRanking), "_listLength");
 
-                    var onDone = (Action<UserScoreRanking[]>)onDoneField.GetValue(instance);
-                    var responseVOs = (List<UserScoreRankingResponseVO>)responseVOsField.GetValue(instance);
-                    var rankingIds = (List<int>)rankingIdsField.GetValue(instance);
-                    var listIndex = (int)listIndexField.GetValue(instance);
-                    var listLength = (int)listLengthField.GetValue(instance);
+                    var onDone = (Action<UserScoreRanking[]>)onDoneField.GetValue(__instance);
+                    var responseVOs = (List<UserScoreRankingResponseVO>)responseVOsField.GetValue(__instance);
+                    var rankingIds = (List<int>)rankingIdsField.GetValue(__instance);
+                    var listIndex = (int)listIndexField.GetValue(__instance);
+                    var listLength = (int)listLengthField.GetValue(__instance);
 
                     if (listLength <= 0 || rankingIds == null || rankingIds.Count == 0)
                         return true;
 
-                    var query = instance.Query as NetQuery<UserScoreRankingRequestVO, UserScoreRankingResponseVO>;
+                    var query = __instance.Query as NetQuery<UserScoreRankingRequestVO, UserScoreRankingResponseVO>;
                     if (query == null) return true;
 
                     var request = query.Request;
@@ -96,7 +118,7 @@ namespace MaimaiTournamentMod
 
                         foreach (var competitionId in rankingIds)
                         {
-                            var rankingData = _config.GetUserScoreRanking(userId, competitionId);
+                            var rankingData = config.GetUserScoreRanking(userId, competitionId);
                             if (rankingData.tournamentId != 0)
                             {
                                 customRankings.Add(rankingData);
@@ -116,7 +138,7 @@ namespace MaimaiTournamentMod
                                 });
                             }
 
-                            listIndexField.SetValue(instance, listLength);
+                            listIndexField.SetValue(__instance, listLength);
 
                             var queryStateField = AccessTools.Field(query.GetType(), "_state");
                             if (queryStateField != null)
@@ -124,7 +146,7 @@ namespace MaimaiTournamentMod
                                 queryStateField.SetValue(query, 2);
                             }
 
-                            if (_config.DebugLog)
+                            if (config.DebugLog)
                             {
                                 PrintUserScoreRankingJsonResponse(userId, customRankings.ToArray());
                             }
@@ -139,7 +161,7 @@ namespace MaimaiTournamentMod
                     }
                     else
                     {
-                        if (_config.DebugLog)
+                        if (config.DebugLog)
                         {
                             MelonLogger.Msg($"User {userId} ranking data already processed, skipping injection");
                         }
@@ -158,7 +180,7 @@ namespace MaimaiTournamentMod
                 return new GameTournamentInfoResponseVO
                 {
                     length = 1,
-                    gameTournamentInfoList = _config.CreateTournamentInfoList()
+                    gameTournamentInfoList = config.CreateTournamentInfoList()
                 };
             }
 
@@ -187,7 +209,7 @@ namespace MaimaiTournamentMod
                     }
                     jsonBuilder.Append("}");
 
-                    MelonLogger.Msg($"GetGameTournamentInfoApi Response: {jsonBuilder}");
+                    MelonLogger.Msg($"GetGameTournamentInfoApi Response: {jsonBuilder.ToString()}");
                 }
                 catch (Exception e)
                 {
@@ -221,7 +243,7 @@ namespace MaimaiTournamentMod
 
                     jsonBuilder.Append("}");
 
-                    MelonLogger.Msg($"GetUserScoreRankingApi Final Response: {jsonBuilder}");
+                    MelonLogger.Msg($"GetUserScoreRankingApi Final Response: {jsonBuilder.ToString()}");
                 }
                 catch (Exception e)
                 {
@@ -318,17 +340,17 @@ namespace MaimaiTournamentMod
         {
             [HarmonyPatch("Proc")]
             [HarmonyPostfix]
-            public static void Proc_Postfix(PacketUpsertUserAll instance, ref PacketState result)
+            public static void Proc_Postfix(PacketUpsertUserAll __instance, ref PacketState __result)
             {
                 try
                 {
-                    if (!_config.Enabled || !_config.EnableScoreRanking)
+                    if (!config.Enabled || !config.EnableScoreRanking)
                         return;
 
-                    if (result != PacketState.Done)
+                    if (__result != PacketState.Done)
                         return;
 
-                    var query = instance.Query as NetQuery<UserAllRequestVO, UpsertResponseVO>;
+                    var query = __instance.Query as NetQuery<UserAllRequestVO, UpsertResponseVO>;
                     if (query == null) return;
 
                     var request = query.Request;
@@ -353,7 +375,7 @@ namespace MaimaiTournamentMod
                 if (latestPlaylog.playTrack < 3)
                     return;
 
-                var musicIds = ParseIntArray(_config.MusicIds);
+                var musicIds = ParseIntArray(config.MusicIds);
                 if (musicIds.Length < 3)
                     return;
 
@@ -402,22 +424,22 @@ namespace MaimaiTournamentMod
 
                 var record = new ScoreRankingRecord
                 {
-                    UserId = request.userId,
-                    UserName = userName,
-                    TournamentId = _config.TournamentId,
-                    Level01 = songScores[0].Level,
-                    Score01 = (int)songScores[0].Achievement,
-                    ScoreDx01 = (int)songScores[0].DeluxScore,
-                    Level02 = songScores[1].Level,
-                    Score02 = (int)songScores[1].Achievement,
-                    ScoreDx02 = (int)songScores[1].DeluxScore,
-                    Level03 = songScores[2].Level,
-                    Score03 = (int)songScores[2].Achievement,
-                    ScoreDx03 = (int)songScores[2].DeluxScore,
-                    PlayDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                    IsBestScore = 0,
-                    Ranking = 0,
-                    RankingDate = ""
+                    userId = request.userId,
+                    userName = userName,
+                    tournamentId = config.TournamentId,
+                    level01 = songScores[0].Level,
+                    score01 = (int)songScores[0].Achievement,
+                    scoreDX01 = (int)songScores[0].DeluxScore,
+                    level02 = songScores[1].Level,
+                    score02 = (int)songScores[1].Achievement,
+                    scoreDX02 = (int)songScores[1].DeluxScore,
+                    level03 = songScores[2].Level,
+                    score03 = (int)songScores[2].Achievement,
+                    scoreDX03 = (int)songScores[2].DeluxScore,
+                    playDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                    isBestScore = 0,
+                    ranking = 0,
+                    rankingDate = ""
                 };
 
                 CalculateTotalScores(ref record);
@@ -426,12 +448,12 @@ namespace MaimaiTournamentMod
 
             private static void CalculateTotalScores(ref ScoreRankingRecord record)
             {
-                record.TotalDxScore = record.ScoreDx01 + record.ScoreDx02 + record.ScoreDx03;
+                record.totalDXScore = record.scoreDX01 + record.scoreDX02 + record.scoreDX03;
 
-                int baseTotalScore = record.Score01 + record.Score02 + record.Score03;
+                int baseTotalScore = record.score01 + record.score02 + record.score03;
 
                 int penalty = 0;
-                int[] levels = { record.Level01, record.Level02, record.Level03 };
+                int[] levels = { record.level01, record.level02, record.level03 };
 
                 foreach (int level in levels)
                 {
@@ -440,21 +462,22 @@ namespace MaimaiTournamentMod
                         case 0: penalty += 30000; break;
                         case 1: penalty += 20000; break;
                         case 2: penalty += 10000; break;
+                        default: break;
                     }
                 }
 
-                record.TotalScore = baseTotalScore - penalty;
+                record.totalScore = baseTotalScore - penalty;
             }
 
             private static void SaveAndUpdateRankings(ScoreRankingRecord newRecord)
             {
                 List<ScoreRankingRecord> allRecords = new List<ScoreRankingRecord>();
 
-                if (File.Exists(_config.ScoreRankingCsvPath))
+                if (File.Exists(config.ScoreRankingCsvPath))
                 {
                     try
                     {
-                        var lines = File.ReadAllLines(_config.ScoreRankingCsvPath);
+                        var lines = File.ReadAllLines(config.ScoreRankingCsvPath);
                         for (int i = 1; i < lines.Length; i++)
                         {
                             var line = lines[i];
@@ -477,60 +500,102 @@ namespace MaimaiTournamentMod
                 allRecords.Add(newRecord);
 
                 var uniqueRecords = allRecords
-                    .GroupBy(r => new { r.UserId, r.TotalScore, r.TotalDxScore })
-                    .Select(g => g.OrderBy(r => DateTime.Parse(r.PlayDate)).First())
+                    .GroupBy(r => new { r.userId, r.totalScore, r.totalDXScore })
+                    .Select(g => g.OrderBy(r => DateTime.Parse(r.playDate)).First())
                     .ToList();
 
                 var userGroups = uniqueRecords
-                    .GroupBy(r => r.UserId)
+                    .GroupBy(r => r.userId)
                     .SelectMany(g =>
                     {
-                        var userRecords = g.OrderByDescending(r => r.TotalScore)
-                                          .ThenByDescending(r => r.TotalDxScore)
+                        var userRecords = g.OrderByDescending(r => r.totalScore)
+                                          .ThenByDescending(r => r.totalDXScore)
                                           .ToList();
 
                         for (int i = 0; i < userRecords.Count; i++)
                         {
-                            userRecords[i].IsBestScore = (i == 0) ? 1 : 0;
+                            userRecords[i].isBestScore = (i == 0) ? 1 : 0;
                         }
                         return userRecords;
                     })
                     .ToList();
 
-                var bestRecords = userGroups.Where(r => r.IsBestScore == 1).ToList();
+                var bestRecords = userGroups.Where(r => r.isBestScore == 1).ToList();
                 var rankedBestRecords = bestRecords
-                    .OrderByDescending(r => r.TotalScore)
-                    .ThenByDescending(r => r.TotalDxScore)
+                    .OrderByDescending(r => r.totalScore)
+                    .ThenByDescending(r => r.totalDXScore)
                     .Select((r, index) =>
                     {
-                        r.Ranking = index + 1;
-                        r.RankingDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                        r.ranking = index + 1;
+                        r.rankingDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
                         return r;
                     })
                     .ToList();
 
                 foreach (var record in userGroups)
                 {
-                    if (record.IsBestScore == 1)
+                    if (record.isBestScore == 1)
                     {
                         var bestRecord = rankedBestRecords.FirstOrDefault(r =>
-                            r.UserId == record.UserId &&
-                            r.TotalScore == record.TotalScore &&
-                            r.TotalDxScore == record.TotalDxScore);
+                            r.userId == record.userId &&
+                            r.totalScore == record.totalScore &&
+                            r.totalDXScore == record.totalDXScore);
                         if (bestRecord != null)
                         {
-                            record.Ranking = bestRecord.Ranking;
-                            record.RankingDate = bestRecord.RankingDate;
+                            record.ranking = bestRecord.ranking;
+                            record.rankingDate = bestRecord.rankingDate;
                         }
                     }
                     else
                     {
-                        record.Ranking = 0;
-                        record.RankingDate = "";
+                        record.ranking = 0;
+                        record.rankingDate = "";
                     }
                 }
 
                 SaveRecordsToCsv(userGroups);
+
+                // Upload to API if enabled
+                if (config.EnableApiUpload && !string.IsNullOrWhiteSpace(config.ApiUrl))
+                {
+                    MelonLogger.Msg($"API upload enabled. URL: {config.ApiUrl}, Uploading best score records...");
+                    
+                    // Upload only the newly added/updated best score record
+                    var newBestRecord = rankedBestRecords.FirstOrDefault(r => 
+                        r.userId == newRecord.userId && 
+                        r.isBestScore == 1);
+                    
+                    if (newBestRecord != null)
+                    {
+                        MelonLogger.Msg($"Attempting to upload record for user {newBestRecord.userId} (Score: {newBestRecord.totalScore})");
+                        Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var success = await ApiUploadService.UploadScoreRecord(newBestRecord, config);
+                                if (success)
+                                {
+                                    MelonLogger.Msg($"Successfully uploaded record for user {newBestRecord.userId}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                MelonLogger.Error($"Exception during API upload: {ex}");
+                            }
+                        });
+                    }
+                    else
+                    {
+                        MelonLogger.Msg($"No new best record found for user {newRecord.userId}, skipping upload");
+                    }
+                }
+                else
+                {
+                    if (config.DebugLog)
+                    {
+                        MelonLogger.Msg($"API upload disabled or URL not set. EnableApiUpload: {config.EnableApiUpload}, ApiUrl: {config.ApiUrl}");
+                    }
+                }
 
                 MelonLogger.Msg($"Updated tournament rankings. Total records: {userGroups.Count}, Participants: {rankedBestRecords.Count}");
             }
@@ -539,24 +604,24 @@ namespace MaimaiTournamentMod
             {
                 return new ScoreRankingRecord
                 {
-                    UserId = ulong.TryParse(parts[0], out ulong uid) ? uid : 0,
-                    UserName = parts[1],
-                    TournamentId = int.TryParse(parts[2], out int tid) ? tid : 0,
-                    Level01 = int.TryParse(parts[3], out int l1) ? l1 : 0,
-                    Score01 = int.TryParse(parts[4], out int s1) ? s1 : 0,
-                    ScoreDx01 = int.TryParse(parts[5], out int dx1) ? dx1 : 0,
-                    Level02 = int.TryParse(parts[6], out int l2) ? l2 : 0,
-                    Score02 = int.TryParse(parts[7], out int s2) ? s2 : 0,
-                    ScoreDx02 = int.TryParse(parts[8], out int dx2) ? dx2 : 0,
-                    Level03 = int.TryParse(parts[9], out int l3) ? l3 : 0,
-                    Score03 = int.TryParse(parts[10], out int s3) ? s3 : 0,
-                    ScoreDx03 = int.TryParse(parts[11], out int dx3) ? dx3 : 0,
-                    TotalScore = long.TryParse(parts[12], out long ts) ? ts : 0,
-                    TotalDxScore = int.TryParse(parts[13], out int tdx) ? tdx : 0,
-                    PlayDate = parts[14],
-                    IsBestScore = int.TryParse(parts[15], out int best) ? best : 0,
-                    Ranking = int.TryParse(parts[16], out int rank) ? rank : 0,
-                    RankingDate = parts[17]
+                    userId = ulong.TryParse(parts[0], out ulong uid) ? uid : 0,
+                    userName = parts[1],
+                    tournamentId = int.TryParse(parts[2], out int tid) ? tid : 0,
+                    level01 = int.TryParse(parts[3], out int l1) ? l1 : 0,
+                    score01 = int.TryParse(parts[4], out int s1) ? s1 : 0,
+                    scoreDX01 = int.TryParse(parts[5], out int dx1) ? dx1 : 0,
+                    level02 = int.TryParse(parts[6], out int l2) ? l2 : 0,
+                    score02 = int.TryParse(parts[7], out int s2) ? s2 : 0,
+                    scoreDX02 = int.TryParse(parts[8], out int dx2) ? dx2 : 0,
+                    level03 = int.TryParse(parts[9], out int l3) ? l3 : 0,
+                    score03 = int.TryParse(parts[10], out int s3) ? s3 : 0,
+                    scoreDX03 = int.TryParse(parts[11], out int dx3) ? dx3 : 0,
+                    totalScore = long.TryParse(parts[12], out long ts) ? ts : 0,
+                    totalDXScore = int.TryParse(parts[13], out int tdx) ? tdx : 0,
+                    playDate = parts[14],
+                    isBestScore = int.TryParse(parts[15], out int best) ? best : 0,
+                    ranking = int.TryParse(parts[16], out int rank) ? rank : 0,
+                    rankingDate = parts[17]
                 };
             }
 
@@ -564,7 +629,7 @@ namespace MaimaiTournamentMod
             {
                 try
                 {
-                    var directory = Path.GetDirectoryName(_config.ScoreRankingCsvPath);
+                    var directory = Path.GetDirectoryName(config.ScoreRankingCsvPath);
                     if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
                     {
                         Directory.CreateDirectory(directory);
@@ -576,23 +641,23 @@ namespace MaimaiTournamentMod
                     };
 
                     var sortedRecords = records
-                        .OrderBy(r => r.UserId)
-                        .ThenByDescending(r => r.TotalScore)
-                        .ThenByDescending(r => r.TotalDxScore)
+                        .OrderBy(r => r.userId)
+                        .ThenByDescending(r => r.totalScore)
+                        .ThenByDescending(r => r.totalDXScore)
                         .ToList();
 
                     foreach (var record in sortedRecords)
                     {
-                        var line = $"{record.UserId},{EscapeCsv(record.UserName)},{record.TournamentId}," +
-                                   $"{record.Level01},{record.Score01},{record.ScoreDx01}," +
-                                   $"{record.Level02},{record.Score02},{record.ScoreDx02}," +
-                                   $"{record.Level03},{record.Score03},{record.ScoreDx03}," +
-                                   $"{record.TotalScore},{record.TotalDxScore},{EscapeCsv(record.PlayDate)}," +
-                                   $"{record.IsBestScore},{record.Ranking},{EscapeCsv(record.RankingDate)}";
+                        var line = $"{record.userId},{EscapeCsv(record.userName)},{record.tournamentId}," +
+                                   $"{record.level01},{record.score01},{record.scoreDX01}," +
+                                   $"{record.level02},{record.score02},{record.scoreDX02}," +
+                                   $"{record.level03},{record.score03},{record.scoreDX03}," +
+                                   $"{record.totalScore},{record.totalDXScore},{EscapeCsv(record.playDate)}," +
+                                   $"{record.isBestScore},{record.ranking},{EscapeCsv(record.rankingDate)}";
                         lines.Add(line);
                     }
 
-                    File.WriteAllLines(_config.ScoreRankingCsvPath, lines);
+                    File.WriteAllLines(config.ScoreRankingCsvPath, lines);
                 }
                 catch (Exception e)
                 {
@@ -634,45 +699,262 @@ namespace MaimaiTournamentMod
 
     public class ScoreRankingRecord
     {
-        public ulong UserId { get; set; }
-        public string UserName { get; set; }
-        public int TournamentId { get; set; }
-        public int Level01 { get; set; }
-        public int Score01 { get; set; }
-        public int ScoreDx01 { get; set; }
-        public int Level02 { get; set; }
-        public int Score02 { get; set; }
-        public int ScoreDx02 { get; set; }
-        public int Level03 { get; set; }
-        public int Score03 { get; set; }
-        public int ScoreDx03 { get; set; }
-        public long TotalScore { get; set; }
-        public int TotalDxScore { get; set; }
-        public string PlayDate { get; set; }
-        public int IsBestScore { get; set; }
-        public int Ranking { get; set; }
-        public string RankingDate { get; set; }
+        public ulong userId { get; set; }
+        public string userName { get; set; }
+        public int tournamentId { get; set; }
+        public int level01 { get; set; }
+        public int score01 { get; set; }
+        public int scoreDX01 { get; set; }
+        public int level02 { get; set; }
+        public int score02 { get; set; }
+        public int scoreDX02 { get; set; }
+        public int level03 { get; set; }
+        public int score03 { get; set; }
+        public int scoreDX03 { get; set; }
+        public long totalScore { get; set; }
+        public int totalDXScore { get; set; }
+        public string playDate { get; set; }
+        public int isBestScore { get; set; }
+        public int ranking { get; set; }
+        public string rankingDate { get; set; }
+    }
+
+    public class ApiUploadService
+    {
+        public static async Task<bool> UploadScoreRecord(ScoreRankingRecord record, TournamentConfig config)
+        {
+            if (!config.EnableApiUpload || string.IsNullOrWhiteSpace(config.ApiUrl))
+            {
+                MelonLogger.Warning($"API upload skipped: EnableApiUpload={config.EnableApiUpload}, ApiUrl={config.ApiUrl}");
+                return false;
+            }
+
+            MelonLogger.Msg($"Starting API upload for user {record.userId} to {config.ApiUrl}");
+
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var json = SerializeToJson(record);
+                    if (config.DebugLog)
+                    {
+                        MelonLogger.Msg($"Request JSON: {json}");
+                    }
+
+                    var request = (HttpWebRequest)WebRequest.Create(config.ApiUrl);
+                    request.Method = "POST";
+                    request.ContentType = "application/json";
+                    request.Timeout = config.ApiTimeout * 1000; // Convert to milliseconds
+
+                    if (!string.IsNullOrWhiteSpace(config.ApiKey))
+                    {
+                        request.Headers.Add("Authorization", $"Bearer {config.ApiKey}");
+                        if (config.DebugLog)
+                        {
+                            MelonLogger.Msg("API Key provided, adding Authorization header");
+                        }
+                    }
+                    else
+                    {
+                        if (config.DebugLog)
+                        {
+                            MelonLogger.Msg("No API Key provided, sending request without authentication");
+                        }
+                    }
+
+                    var jsonBytes = Encoding.UTF8.GetBytes(json);
+                    request.ContentLength = jsonBytes.Length;
+
+                    MelonLogger.Msg($"Sending POST request to {config.ApiUrl}...");
+
+                    using (var requestStream = request.GetRequestStream())
+                    {
+                        requestStream.Write(jsonBytes, 0, jsonBytes.Length);
+                    }
+
+                    using (var response = (HttpWebResponse)request.GetResponse())
+                    {
+                        var statusCode = (int)response.StatusCode;
+                        string responseContent = "";
+                        
+                        // Read response content first
+                        try
+                        {
+                            using (var responseStream = response.GetResponseStream())
+                            {
+                                if (responseStream != null)
+                                {
+                                    using (var reader = new StreamReader(responseStream, Encoding.UTF8))
+                                    {
+                                        responseContent = reader.ReadToEnd();
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception readEx)
+                        {
+                            MelonLogger.Warning($"Failed to read response content: {readEx.Message}");
+                            responseContent = "[Unable to read response]";
+                        }
+                        
+                        if (statusCode >= 200 && statusCode < 300)
+                        {
+                            MelonLogger.Msg($"Successfully uploaded score record for user {record.userId} to API (Status: {statusCode})");
+                            
+                            if (config.DebugLog && !string.IsNullOrEmpty(responseContent))
+                            {
+                                try
+                                {
+                                    MelonLogger.Msg($"API Response: {responseContent}");
+                                }
+                                catch (Exception logEx)
+                                {
+                                    MelonLogger.Warning($"Failed to log API response: {logEx.Message}");
+                                }
+                            }
+                            return true;
+                        }
+                        else
+                        {
+                            MelonLogger.Error($"API upload failed with status {statusCode}: {responseContent}");
+                            return false;
+                        }
+                    }
+                }
+                catch (WebException ex)
+                {
+                    if (ex.Response is HttpWebResponse httpResponse)
+                    {
+                        var statusCode = (int)httpResponse.StatusCode;
+                        string errorContent = "";
+                        try
+                        {
+                            using (var responseStream = httpResponse.GetResponseStream())
+                            {
+                                if (responseStream != null)
+                                {
+                                    using (var reader = new StreamReader(responseStream, Encoding.UTF8))
+                                    {
+                                        errorContent = reader.ReadToEnd();
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception readEx)
+                        {
+                            MelonLogger.Warning($"Failed to read error response: {readEx.Message}");
+                            errorContent = "[Unable to read error response]";
+                        }
+                        
+                        try
+                        {
+                            MelonLogger.Error($"API upload failed with status {statusCode}: {errorContent}");
+                        }
+                        catch (Exception logEx)
+                        {
+                            MelonLogger.Error($"API upload failed with status {statusCode} (unable to log response content)");
+                        }
+                    }
+                    else
+                    {
+                        MelonLogger.Error($"Web exception during API upload: {ex.Message}");
+                        if (ex.InnerException != null)
+                        {
+                            MelonLogger.Error($"Inner exception: {ex.InnerException.Message}");
+                        }
+                    }
+                    return false;
+                }
+                catch (Exception e)
+                {
+                    MelonLogger.Error($"Failed to upload score record to API: {e.GetType().Name} - {e.Message}");
+                    MelonLogger.Error($"Stack trace: {e.StackTrace}");
+                    return false;
+                }
+            });
+        }
+
+        private static string SerializeToJson(ScoreRankingRecord record)
+        {
+            var sb = new StringBuilder();
+            sb.Append("{");
+            sb.Append($"\"userId\":{record.userId},");
+            sb.Append($"\"userName\":\"{EscapeJsonString(record.userName)}\",");
+            sb.Append($"\"tournamentId\":{record.tournamentId},");
+            sb.Append($"\"level01\":{record.level01},");
+            sb.Append($"\"score01\":{record.score01},");
+            sb.Append($"\"scoreDX01\":{record.scoreDX01},");
+            sb.Append($"\"level02\":{record.level02},");
+            sb.Append($"\"score02\":{record.score02},");
+            sb.Append($"\"scoreDX02\":{record.scoreDX02},");
+            sb.Append($"\"level03\":{record.level03},");
+            sb.Append($"\"score03\":{record.score03},");
+            sb.Append($"\"scoreDX03\":{record.scoreDX03},");
+            sb.Append($"\"totalScore\":{record.totalScore},");
+            sb.Append($"\"totalDXScore\":{record.totalDXScore},");
+            sb.Append($"\"playDate\":\"{EscapeJsonString(record.playDate)}\",");
+            sb.Append($"\"isBestScore\":{record.isBestScore},");
+            sb.Append($"\"ranking\":{record.ranking},");
+            sb.Append($"\"rankingDate\":\"{EscapeJsonString(record.rankingDate)}\"");
+            sb.Append("}");
+            return sb.ToString();
+        }
+
+        private static string EscapeJsonString(string str)
+        {
+            if (string.IsNullOrEmpty(str)) return "";
+
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in str)
+            {
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < ' ')
+                        {
+                            sb.AppendFormat("\\u{0:X4}", (int)c);
+                        }
+                        else
+                        {
+                            sb.Append(c);
+                        }
+                        break;
+                }
+            }
+            return sb.ToString();
+        }
     }
 
     public class TournamentConfig
     {
-        public bool Enabled { get; set; }
-        public bool DebugLog { get; set; }
-        public int TournamentId { get; set; }
-        public string TournamentName { get; set; }
-        public int RankingKind { get; set; }
+        public bool Enabled { get; set; } = false;
+        public bool DebugLog { get; set; } = false;
+        public int TournamentId { get; set; } = 0;
+        public string TournamentName { get; set; } = "";
+        public int RankingKind { get; set; } = 0;
         public string NoticeStartDate { get; set; } = "1970-01-01 00:00:00";
         public string NoticeEndDate { get; set; } = "1970-01-01 00:00:00";
         public string StartDate { get; set; } = "1970-01-01 00:00:00";
         public string EndDate { get; set; } = "1970-01-01 00:00:00";
         public string EntryStartDate { get; set; } = "1970-01-01 00:00:00";
         public string EntryEndDate { get; set; } = "1970-01-01 00:00:00";
-        public string MusicIds { get; set; }
-        public string LockedMusicIds { get; set; }
-        public bool EnableScoreRanking { get; set; }
+        public string MusicIds { get; set; } = "";
+        public string LockedMusicIds { get; set; } = "";
+        public bool EnableScoreRanking { get; set; } = false;
         public string ScoreRankingCsvPath { get; set; } = "UserData/ScoreRanking.csv";
+        public bool EnableApiUpload { get; set; } = false;
+        public string ApiUrl { get; set; } = "";
+        public string ApiKey { get; set; } = "";
+        public int ApiTimeout { get; set; } = 30;
 
-        private List<ScoreRankingRecord> _scoreRankingRecords = new List<ScoreRankingRecord>();
+        private List<ScoreRankingRecord> scoreRankingRecords = new List<ScoreRankingRecord>();
 
         public void Load()
         {
@@ -693,6 +975,10 @@ namespace MaimaiTournamentMod
             var lockedMusicIds = category.CreateEntry("LockedMusicIds", LockedMusicIds, "Locked Music IDs (comma separated)");
             var enableScoreRanking = category.CreateEntry("EnableScoreRanking", EnableScoreRanking, "Enable custom score ranking data");
             var scoreRankingCsvPath = category.CreateEntry("ScoreRankingCsvPath", ScoreRankingCsvPath, "Score ranking CSV file path");
+            var enableApiUpload = category.CreateEntry("EnableApiUpload", EnableApiUpload, "Enable API upload for score ranking data");
+            var apiUrl = category.CreateEntry("ApiUrl", ApiUrl, "API endpoint URL for uploading score data");
+            var apiKey = category.CreateEntry("ApiKey", ApiKey, "API key for authentication (optional)");
+            var apiTimeout = category.CreateEntry("ApiTimeout", ApiTimeout, "API request timeout in seconds");
 
             Enabled = enabled.Value;
             DebugLog = debugLog.Value;
@@ -709,6 +995,10 @@ namespace MaimaiTournamentMod
             LockedMusicIds = lockedMusicIds.Value;
             EnableScoreRanking = enableScoreRanking.Value;
             ScoreRankingCsvPath = scoreRankingCsvPath.Value;
+            EnableApiUpload = enableApiUpload.Value;
+            ApiUrl = apiUrl.Value;
+            ApiKey = apiKey.Value;
+            ApiTimeout = apiTimeout.Value;
 
             if (EnableScoreRanking)
             {
@@ -735,7 +1025,7 @@ namespace MaimaiTournamentMod
                     return;
                 }
 
-                _scoreRankingRecords.Clear();
+                scoreRankingRecords.Clear();
 
                 for (int i = 1; i < lines.Length; i++)
                 {
@@ -747,31 +1037,31 @@ namespace MaimaiTournamentMod
                     {
                         var record = new ScoreRankingRecord
                         {
-                            UserId = ulong.TryParse(parts[0], out ulong uid) ? uid : 0,
-                            UserName = parts[1],
-                            TournamentId = int.TryParse(parts[2], out int tid) ? tid : 0,
-                            Level01 = int.TryParse(parts[3], out int l1) ? l1 : 0,
-                            Score01 = int.TryParse(parts[4], out int s1) ? s1 : 0,
-                            ScoreDx01 = int.TryParse(parts[5], out int dx1) ? dx1 : 0,
-                            Level02 = int.TryParse(parts[6], out int l2) ? l2 : 0,
-                            Score02 = int.TryParse(parts[7], out int s2) ? s2 : 0,
-                            ScoreDx02 = int.TryParse(parts[8], out int dx2) ? dx2 : 0,
-                            Level03 = int.TryParse(parts[9], out int l3) ? l3 : 0,
-                            Score03 = int.TryParse(parts[10], out int s3) ? s3 : 0,
-                            ScoreDx03 = int.TryParse(parts[11], out int dx3) ? dx3 : 0,
-                            TotalScore = long.TryParse(parts[12], out long ts) ? ts : 0,
-                            TotalDxScore = int.TryParse(parts[13], out int tdx) ? tdx : 0,
-                            PlayDate = parts[14],
-                            IsBestScore = int.TryParse(parts[15], out int best) ? best : 0,
-                            Ranking = int.TryParse(parts[16], out int rank) ? rank : 0,
-                            RankingDate = parts[17]
+                            userId = ulong.TryParse(parts[0], out ulong uid) ? uid : 0,
+                            userName = parts[1],
+                            tournamentId = int.TryParse(parts[2], out int tid) ? tid : 0,
+                            level01 = int.TryParse(parts[3], out int l1) ? l1 : 0,
+                            score01 = int.TryParse(parts[4], out int s1) ? s1 : 0,
+                            scoreDX01 = int.TryParse(parts[5], out int dx1) ? dx1 : 0,
+                            level02 = int.TryParse(parts[6], out int l2) ? l2 : 0,
+                            score02 = int.TryParse(parts[7], out int s2) ? s2 : 0,
+                            scoreDX02 = int.TryParse(parts[8], out int dx2) ? dx2 : 0,
+                            level03 = int.TryParse(parts[9], out int l3) ? l3 : 0,
+                            score03 = int.TryParse(parts[10], out int s3) ? s3 : 0,
+                            scoreDX03 = int.TryParse(parts[11], out int dx3) ? dx3 : 0,
+                            totalScore = long.TryParse(parts[12], out long ts) ? ts : 0,
+                            totalDXScore = int.TryParse(parts[13], out int tdx) ? tdx : 0,
+                            playDate = parts[14],
+                            isBestScore = int.TryParse(parts[15], out int best) ? best : 0,
+                            ranking = int.TryParse(parts[16], out int rank) ? rank : 0,
+                            rankingDate = parts[17]
                         };
 
-                        _scoreRankingRecords.Add(record);
+                        scoreRankingRecords.Add(record);
                     }
                 }
 
-                MelonLogger.Msg($"Loaded {_scoreRankingRecords.Count} score ranking records from {ScoreRankingCsvPath}");
+                MelonLogger.Msg($"Loaded {scoreRankingRecords.Count} score ranking records from {ScoreRankingCsvPath}");
             }
             catch (Exception e)
             {
@@ -781,7 +1071,7 @@ namespace MaimaiTournamentMod
 
         public UserScoreRanking GetUserScoreRanking(ulong userId, int competitionId)
         {
-            if (!EnableScoreRanking || _scoreRankingRecords.Count == 0)
+            if (!EnableScoreRanking || scoreRankingRecords.Count == 0)
             {
                 return new UserScoreRanking
                 {
@@ -792,19 +1082,19 @@ namespace MaimaiTournamentMod
                 };
             }
 
-            var record = _scoreRankingRecords.FirstOrDefault(r =>
-                r.UserId == userId &&
-                r.TournamentId == competitionId &&
-                r.IsBestScore == 1);
+            var record = scoreRankingRecords.FirstOrDefault(r =>
+                r.userId == userId &&
+                r.tournamentId == competitionId &&
+                r.isBestScore == 1);
 
             if (record != null)
             {
                 return new UserScoreRanking
                 {
-                    tournamentId = record.TournamentId,
-                    totalScore = record.TotalScore,
-                    ranking = record.Ranking,
-                    rankingDate = record.RankingDate
+                    tournamentId = record.tournamentId,
+                    totalScore = record.totalScore,
+                    ranking = record.ranking,
+                    rankingDate = record.rankingDate
                 };
             }
 
@@ -834,8 +1124,8 @@ namespace MaimaiTournamentMod
                 };
             }
 
-            return
-            [
+            return new GameTournamentInfo[]
+            {
                 new GameTournamentInfo
                 {
                     tournamentId = TournamentId,
@@ -850,7 +1140,7 @@ namespace MaimaiTournamentMod
                     entryEndDate = EntryEndDate,
                     gameTournamentMusicList = musicList
                 }
-            ];
+            };
         }
 
         private int[] ParseIntArray(string input)
