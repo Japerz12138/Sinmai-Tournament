@@ -16,13 +16,13 @@
 
 	<ItemGroup>
 		<Reference Include="Assembly-CSharp">
-			<HintPath>F:\Package\Sinmai_Data\Managed\Assembly-CSharp.dll</HintPath>
+			<HintPath>.\temp\Assembly-CSharp.dll</HintPath>
 		</Reference>
 		<Reference Include="MelonLoader">
-			<HintPath>F:\Package\MelonLoader\net35\MelonLoader.dll</HintPath>
+			<HintPath>.\temp\MelonLoader.dll</HintPath>
 		</Reference>
 		<Reference Include="0Harmony">
-			<HintPath>F:\Package\MelonLoader\net35\0Harmony.dll</HintPath>
+			<HintPath>.\temp\0Harmony.dll</HintPath>
 		</Reference>
 
 	</ItemGroup>
@@ -37,6 +37,6 @@
 	</ItemGroup>
 
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
-		<Exec Command="COPY &quot;$(TargetPath)&quot; &quot;F:\Package\Mods&quot;" />
+		<Exec Command="COPY &quot;$(TargetPath)&quot; &quot;.\Mods&quot;" />
 	</Target>
 </Project>
